@@ -19,18 +19,20 @@ $unix_time = Get-Date -UFormat %s -Millisecond 0
 $archive_filename = $date + "_" + $unix_time + ".zip"
 $temp_archive_full_path = Join-Path -Path $env:TEMP -ChildPath $archive_filename
 
-echo "------------------------------------------------------------------------------" >> $log_file
+$t = Get-Date -format yyyy-MM-dd_HH:mm:ss
+echo "###################################   $t   ###################################" >> $log_file
 echo "CREATING ARCHIVE: $archive_filename `nIN $env:TEMP" >> $log_file
 
 Compress-Archive -Path $important_dir -DestinationPath $temp_archive_full_path -CompressionLevel $compression_level -ErrorAction Stop
 
-echo "------------------------------------------------------------------------------" >> $log_file
-echo "MOVING THE FILE..." >> $log_file
+echo "-------------------------------------------------------------------------------" >> $log_file
+echo "MOVING THE ARCHIVE..." >> $log_file
 
 robocopy $env:TEMP $backup_path $archive_filename /MOVE /R:3 /np >> $log_file
 
-echo "------------------------------------------------------------------------------" >> $log_file
-echo "ALL DONE" >> $log_file
+echo "-------------------------------------------------------------------------------" >> $log_file
+$t = Get-Date -format yyyy-MM-dd_HH:mm:ss
+echo "ALL DONE   $t   ALL DONE`n " >> $log_file
 
 # single line, packing at the destination
 # Get-ChildItem $important_dir | Compress-Archive  -DestinationPath $backup_path\$archive_filename -Verbose

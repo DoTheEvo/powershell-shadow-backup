@@ -7,12 +7,12 @@
 
 $important_dir = "C:\test"
 $backup_path = $env:HOMEPATH
-$log_file = "$env:HOMEPATH\robocopy_log.txt"
+$log_file = "$env:HOMEPATH\shadowcopy_log.txt"
 $compression_level = "NoCompression" # Optimal / Fastest / NoCompression
 
 # ----------------------------------------------
 
-$temp_shadow_link = "C:\shadowcopy23412"
+$temp_shadow_link = "$env:TEMP\shadowcopy_link"
 $date = Get-Date -format yyyy-MM-dd
 $unix_time = Get-Date -UFormat %s -Millisecond 0
 $archive_filename = $date + "_" + $unix_time + ".zip"
@@ -32,20 +32,20 @@ if (Test-Path $temp_shadow_link) {
 }
 
 cmd /c mklink /d $temp_shadow_link $d >> $log_file
-$shadow_orig_dir = $important_dir -replace "^C:", $temp_shadow_link
+$shadow_snapshot_path = $important_dir -ireplace "^C:", $temp_shadow_link
 
-if (-Not (Test-Path $shadow_orig_dir)) {
-    echo $shadow_orig_dir >> $log_file
+if (-Not (Test-Path $shadow_snapshot_path)) {
     echo "NOT A VALID SHADOW COPY PATH" >> $log_file
+    echo $shadow_snapshot_path >> $log_file
     exit
 }
 
 echo "-------------------------------------------------------------------------------" >> $log_file
 echo "CREATING ARCHIVE: $archive_filename `nIN $env:TEMP" >> $log_file
-Compress-Archive -Path $shadow_orig_dir -DestinationPath $temp_archive_path -CompressionLevel $compression_level -ErrorAction Stop
+Compress-Archive -Path $shadow_snapshot_path -DestinationPath $temp_archive_path -CompressionLevel $compression_level -ErrorAction Stop
 
 echo "-------------------------------------------------------------------------------" >> $log_file
-echo "DELETING SNAPSHOT AND THE LINK TO IT" >> $log_file
+echo "DELETING SNAPSHOT AND THE LINK" >> $log_file
 $s2.Delete()
 cmd /c rmdir $temp_shadow_link
 
