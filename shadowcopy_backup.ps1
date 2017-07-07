@@ -2,6 +2,7 @@
 # backups $target as a zip archive to $backup_path
 # uses volume shadowcopy service to also backup opened files
 # script is written for C:\ drive
+# place in "C:\Windows\System32\WindowsPowerShell\v1.0"
 # requires WMF 5.0 and Volume Shadow Copy (VSS) service running
 #
 
@@ -89,24 +90,27 @@ echo "ALL DONE   $t   ALL DONE" >> $log_file
 # ----------------------------------------------
 
 function MAKE_SCHEDULED_TASK {
- $action = New-ScheduledTaskAction -Execute 'Powershell.exe' `
+    #$Stt = New-ScheduledTaskTrigger -Once -At 23:45
+    #$Stt = New-ScheduledTaskTrigger -Daily -At 23:45
+    #$Stt = New-ScheduledTaskTrigger -Daily -DaysInterval 3 -At 23:45
+    #$Stt = New-ScheduledTaskTrigger -Weekly -WeeksInterval 2 -DaysOfWeek Sunday -At 23:45
+    #$Stt = New-ScheduledTaskTrigger -AtLogon
 
-  -Argument '-NoProfile -WindowStyle Hidden -command "& {get-eventlog -logname Application -After ((get-date).AddDays(-1)) | Export-Csv -Path c:\fso\applog.csv -Force -NoTypeInformation}"'
-
-$trigger =  New-ScheduledTaskTrigger -Daily -At 9am
-
-Register-ScheduledTask -Action $action -Trigger $trigger -TaskName "AppLog" -Description "Daily dump of Applog"
-}
-
-    $taskname = 'shadowcopy_backup'
-    $taskexists = Get-ScheduledTask | Where-Object {$_.TaskName -like $taskname}
-    If ($taskexists){
+    #Create a new trigger that is configured to trigger at startup
+    $STTrigger = New-ScheduledTaskTrigger -AtLogon
+    #Name for the scheduled task
+    $STName = "shadowcopy_backup"
+    #Action to run as
+    $STAction = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -command "shadowcopy_backup.ps1"'
+    #Configure when to stop the task and how long it can run for. In this example it does not stop on idle and uses the maximum possible duration by setting a timelimit of 0
+    $STSettings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -ExecutionTimeLimit ([TimeSpan]::Zero)
+    #Configure the principal to use for the scheduled task and the level to run as
+    $STPrincipal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Administrators" -RunLevel "Highest"
+    #Register the new scheduled task if it does not exists
+    If (Get-ScheduledTask | Where-Object {$_.TaskName -like $STName}){
         echo "SCHEDULED TASK ALREADY EXISTS"
     } else {
-        $action = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument 'COMPANY-SRV2016'
-        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries
-        $taskuser = "$env:USERDOMAIN\$env:USERNAME"
-        $trigger =  New-ScheduledTaskTrigger -AtLogon
-
-        Register-ScheduledTask $taskname -Action $action -Trigger $trigger -Description "Uses LanSweeper Client to Gather Data" -Settings $settings -User $taskuser
+        Register-ScheduledTask $STName -Action $STAction -Trigger $STTrigger -Principal $STPrincipal -Settings $STSettings
     }
+
+}
