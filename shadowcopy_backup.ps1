@@ -8,7 +8,7 @@
 #
 
 $ErrorActionPreference = "Stop"
-$start_time = Get-Date
+$script_start_date = Get-Date
 
 $log_file = "C:\shadowcopy_log.txt"
 Start-Transcript -Path $log_file -Append -Force
@@ -103,8 +103,7 @@ function MAKE_BACKUP {
     "MOVING THE ARCHIVE USING ROBOCOPY"
     robocopy $env:TEMP $backup_path $archive_filename /MOVE /R:3 /np
 
-    $end_time = Get-Date
-    $runtime = $end_time - $start_time
+    $runtime = (Get-Date) - $script_start_date
     $readable_runtime = "{0:dd} days {0:hh} hours {0:mm} minutes {0:ss} seconds" -f $runtime
 
     "#######              $readable_runtime              #######"
@@ -129,7 +128,7 @@ function DEPLOY_AND_MAKE_SCHEDULED_TASK {
     $deploy_path = "C:\Windows\System32\WindowsPowerShell\v1.0"
     $full_deploypath = "C:\Windows\System32\WindowsPowerShell\v1.0\shadowcopy_backup.ps1"
 
-    "COPYING THE SCRIPT TO $full_deploypath"
+    "DEPLOY THE SCRIPT"
 
     # if this is NOT the deployed script being run but a new script
     if (-NOT ($PSCommandPath -eq $full_deploypath)) {
@@ -138,41 +137,29 @@ function DEPLOY_AND_MAKE_SCHEDULED_TASK {
             $unix_time = Get-Date -UFormat %s -Millisecond 0
             $new_name = "shadowcopy_backup.ps1." + $unix_time
             Rename-Item $full_deploypath $new_name
-            "- the script is already present on the system"
+            "- the script is already present at the target destination"
             "- renaming old one to $new_name"
         }
-        "- copying this script"
+        "- copying this script to $full_deploypath"
         robocopy $PSScriptRoot $deploy_path shadowcopy_backup.ps1 /NFL /NDL /NJS
+    } else {
+        "- running already deployed script, nothing to copy"
     }
 
     "CREATING NEW SCHEDULED TASK"
-    # $Stt = New-ScheduledTaskTrigger -Once -At 23:45
-    # $Stt = New-ScheduledTaskTrigger -Daily -At 23:45
-    # $Stt = New-ScheduledTaskTrigger -Daily -DaysInterval 3 -At 23:45
-    # $Stt = New-ScheduledTaskTrigger -Weekly -WeeksInterval 2 -DaysOfWeek Sunday -At 23:45
-    # $Stt = New-ScheduledTaskTrigger -AtLogon
+    $schedule = "DAILY" # MINUTE HOURLY DAILY WEEKLY MONTHLY ONCE ONSTART ONLOGON ONIDLE
+    $modifier = 1 # 1 - every day, 7 - every 7 days, or whatever unit is set in schedule
+    $day = "THU" # MON,TUE,WED,THU,FRI,SAT,SUN
+    $start_time = "20:19"
+    $title = "shadowcopy_backup"
+    $trigger = "Powershell.exe shadowcopy_backup.ps1"
 
-    # Create a new trigger that is configured to trigger at startup
-    $STTrigger = New-ScheduledTaskTrigger -Daily -At 20:19
-    # Name for the scheduled task
-    $STName = "shadowcopy_backup"
-    # Action to run as
-    $STAction = New-ScheduledTaskAction -Execute 'Powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -command "shadowcopy_backup.ps1"'
-    # Configure when to stop the task and how long it can run for. In this example it does not stop on idle and uses the maximum possible duration by setting a timelimit of 0
-    $STSettings = New-ScheduledTaskSettingsSet -DontStopOnIdleEnd -ExecutionTimeLimit ([TimeSpan]::Zero)
-    # Configure the principal to use for the scheduled task and the level to run as
-    $STPrincipal = New-ScheduledTaskPrincipal -GroupId "BUILTIN\Administrators" -RunLevel "Highest"
-    # Remove any old scheduled task with the same name
-    If (Get-ScheduledTask | Where-Object {$_.TaskName -like $STName}){
-        "- scheduled task already exists, deleting old one"
-        Unregister-ScheduledTask -TaskName $STName -Confirm:$false
-    }
-    # Register the new scheduled task
-    "- creating new scheduled task with trigger: " + $STTrigger.Frequency.ToString()
-    Register-ScheduledTask $STName -Action $STAction -Trigger $STTrigger -Principal $STPrincipal -Settings $STSettings
+    cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
 
-    $end_time = Get-Date
-    $runtime = $end_time - $start_time
+    # with the day option, needs schedule to be set to WEEKLY and then day of the week
+    # cmd /c SchTasks /Create /SC $schedule /MO $modifier /D $day /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
+
+    $runtime = (Get-Date) - $script_start_date
     $readable_runtime = "{0:dd} days {0:hh} hours {0:mm} minutes {0:ss} seconds" -f $runtime
     " "
     "#######              $readable_runtime              #######"
