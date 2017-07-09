@@ -1,23 +1,25 @@
-#
-# backups $target as a zip archive to $backup_path
-# uses volume shadowcopy service to also backup opened files
-# script is written for C:\ drive
-# place in "C:\Windows\System32\WindowsPowerShell\v1.0"
-# requires x64, 7-zip, WMF 5.0 and Volume Shadow Copy (VSS) service running
+# ------------------------------------------------------------------------------
+# -----------------------------   SHADOWCOPY_BACKUP   --------------------------
+# ------------------------------------------------------------------------------
+# - requires: 7-zip, WMF 5.0+, Volume Shadow Copy (VSS) service enabled
+# - backups $target as a zip archive to $backup_path
+# - uses volume shadowcopy service to also backup opened files
+# - C:\ drive only
 #
 
 $ErrorActionPreference = "Stop"
+$start_time = Get-Date
+
+$log_file = "C:\shadowcopy_log.txt"
+Start-Transcript -Path $log_file -Append -Force
 
 function MAKE_BACKUP {
+    # ----------------------------------------------
     $target = "C:\test"
     $backup_path = "C:\"
-    $log_file = "C:\shadowcopy_log.txt"
     $compression_level = 0 # 0=no-compression,5=default,9=ultra
-
     # ----------------------------------------------
-    $start_time = Get-Date
-    # every output goes in to log file
-    Start-Transcript -Path $log_file -Append -Force
+
 
     $temp_shadow_link = "$env:TEMP\shadowcopy_link"
     $date = Get-Date -format "yyyy-MM-dd"
@@ -27,12 +29,12 @@ function MAKE_BACKUP {
 
     $t = Get-Date -format "yyyy-MM-dd || HH:mm:ss"
     " "
-    "################################################################################################"
-    "#######                              $t                              #######"
-
-    "- USER: $(whoami)"
-    "- BACKUP TARGET: $target"
-    "- TO DESTINATION: $backup_path"
+    "################################################################################"
+    "#######                      $t                      #######"
+    " "
+    "- user: $(whoami)"
+    "- backup target: $target"
+    "- to destination: $backup_path"
 
     # true or false running as admin
     $running_as_admin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
@@ -51,8 +53,8 @@ function MAKE_BACKUP {
 
     # check if $backup_path path exists on the system
     if (-Not (Test-Path $backup_path)) {
-        "NOT A VALID TARGET PATH"
-        $target
+        "NOT A VALID BACKUP PATH"
+        $backup_path
         exit
     }
     "-------------------------------------------------------------------------------"
@@ -62,8 +64,10 @@ function MAKE_BACKUP {
     $s2 = Get-WmiObject Win32_ShadowCopy | Where-Object { $_.ID -eq $s1.ShadowID }
     $d  = $s2.DeviceObject + "\"
 
+    "- new snapshot created $d"
+
     if (Test-Path $temp_shadow_link) {
-        "$temp_shadow_link EXISTS, DELETING"
+        "- $temp_shadow_link exists, deleting"
         cmd /c rmdir $temp_shadow_link
     }
 
@@ -71,25 +75,30 @@ function MAKE_BACKUP {
     $shadow_snapshot_path = $target -ireplace "^C:", $temp_shadow_link
 
     if (-Not (Test-Path $shadow_snapshot_path)) {
-        "NOT A VALID SHADOW COPY PATH"
+        "- not a valid shadow copy path"
         $shadow_snapshot_path
         exit
     }
 
     "-------------------------------------------------------------------------------"
-    "CREATING ARCHIVE: $archive_filename `nIN $env:TEMP"
+    "CREATING ARCHIVE"
     if (-NOT (test-path "$env:ProgramFiles\7-Zip\7z.exe")) {
         throw "$env:ProgramFiles\7-Zip\7z.exe NEEDED!"
     }
-
+    # 7zip in action
+    "- creating $temp_archive_path"
+    "- waiting for 7zip to finish..."
     Start-Process -WindowStyle hidden -FilePath "$env:ProgramFiles\7-Zip\7z.exe" -ArgumentList "a","-snl","-mx=$compression_level","$temp_archive_path","$target" -Wait
+    "- done"
 
     "-------------------------------------------------------------------------------"
-    "DELETING SNAPSHOT AND THE LINK"
+    "DELETING SHADOWCOPY SNAPSHOT AND THE LINK"
     $s2.Delete()
+    "- the vss snapshot deleted"
     cmd /c rmdir $temp_shadow_link
-
+    "- the link to the snapshot deleted"
     Vssadmin list shadowstorage
+
     "-------------------------------------------------------------------------------"
     "MOVING THE ARCHIVE USING ROBOCOPY"
     robocopy $env:TEMP $backup_path $archive_filename /MOVE /R:3 /np
@@ -98,37 +107,43 @@ function MAKE_BACKUP {
     $runtime = $end_time - $start_time
     $readable_runtime = "{0:dd} days {0:hh} hours {0:mm} minutes {0:ss} seconds" -f $runtime
 
-    "#######       ALL DONE       $readable_runtime       ALL DONE       #######"
-    "################################################################################################"
+    "#######              $readable_runtime              #######"
+    "################################################################################"
     " "
 }
 
-# -----------------------------------------------------------------------------------
-# -----------------------------   MAKE_SCHEDULED_TASK   -----------------------------
-# -----------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# ---------------------   DEPLOY_AND_MAKE_SCHEDULED_TASK   ---------------------
+# ------------------------------------------------------------------------------
+# - copy the script itself to "C:\Windows\System32\WindowsPowerShell\v1.0\"
+# - if one is already there, back it up and replace with the new one
+# - create new scheduled task - shadowcopy_backup
 
-# copy the script itself to "C:\Windows\System32\WindowsPowerShell\v1.0\shadowcopy_backup.ps1"
-# if one is already there, back it up and replace with the new one
-# create new scheduled task - shadowcopy_backup
+function DEPLOY_AND_MAKE_SCHEDULED_TASK {
 
-function MAKE_SCHEDULED_TASK {
-    $storage_path = "C:\Windows\System32\WindowsPowerShell\v1.0"
-    $full_storage_path = "C:\Windows\System32\WindowsPowerShell\v1.0\shadowcopy_backup.ps1"
+    $t = Get-Date -format "yyyy-MM-dd || HH:mm:ss"
+    " "
+    "################################################################################"
+    "#######                      $t                      #######"
+    " "
+    $deploy_path = "C:\Windows\System32\WindowsPowerShell\v1.0"
+    $full_deploypath = "C:\Windows\System32\WindowsPowerShell\v1.0\shadowcopy_backup.ps1"
 
-    "COPYING THIS SCRIPT(shadowcopy_backup.ps1) IN TO $storage_path"
-    # if file already exists, rename the original
-    if (Test-Path $full_storage_path) {
-        if (-NOT ($PSCommandPath -eq $full_storage_path)) {
+    "COPYING THE SCRIPT TO $full_deploypath"
+
+    # if this is NOT the deployed script being run but a new script
+    if (-NOT ($PSCommandPath -eq $full_deploypath)) {
+        # if the script already exists on the system rename
+        if (Test-Path $full_deploypath) {
             $unix_time = Get-Date -UFormat %s -Millisecond 0
             $new_name = "shadowcopy_backup.ps1." + $unix_time
-            Rename-Item $full_storage_path $new_name
+            Rename-Item $full_deploypath $new_name
             "- the script is already present on the system"
             "- renaming old one to $new_name"
         }
+        "- copying this script"
+        robocopy $PSScriptRoot $deploy_path shadowcopy_backup.ps1 /NFL /NDL /NJS
     }
-
-    "- copying this script"
-    robocopy $PSScriptRoot $storage_path shadowcopy_backup.ps1 /NFL /NDL /NJS
 
     "CREATING NEW SCHEDULED TASK"
     # $Stt = New-ScheduledTaskTrigger -Once -At 23:45
@@ -155,12 +170,18 @@ function MAKE_SCHEDULED_TASK {
     # Register the new scheduled task
     "- creating new scheduled task with trigger: " + $STTrigger.Frequency.ToString()
     Register-ScheduledTask $STName -Action $STAction -Trigger $STTrigger -Principal $STPrincipal -Settings $STSettings
+
+    $end_time = Get-Date
+    $runtime = $end_time - $start_time
+    $readable_runtime = "{0:dd} days {0:hh} hours {0:mm} minutes {0:ss} seconds" -f $runtime
+    " "
+    "#######              $readable_runtime              #######"
+    "################################################################################"
 }
 
 # -----------------------------------------------------------------------------------
 # -------------------------------   FUNCTIONS CALLS   -------------------------------
 # -----------------------------------------------------------------------------------
 
-
-# MAKE_SCHEDULED_TASK
+# DEPLOY_AND_MAKE_SCHEDULED_TASK
 MAKE_BACKUP
