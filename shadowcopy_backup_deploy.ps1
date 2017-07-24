@@ -68,7 +68,7 @@ $start_time = "20:19"
 $title = "Shadowcopy Backup"
 $trigger = 'Powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -command "C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup.ps1"'
 
-cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F
+cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
 
 # with the day option, needs schedule to be set to WEEKLY and then day of the week
 # cmd /c SchTasks /Create /SC $schedule /MO $modifier /D $day /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
