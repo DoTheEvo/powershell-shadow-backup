@@ -1,0 +1,11 @@
+# backups will be named based on this config file name
+target=C:\test
+backup_path=C:\backups
+# 0=no-compression,5=default,9=ultra [0 | 1 | 3 | 5 | 7 | 9 ]
+compression_level=0
+# delete applies to zip files at the backup_path
+# their name must start the same as the name of this config file
+delete_old_backups=false
+keep_last_n=5
+keep_monthly=true
+keep_weekly=true

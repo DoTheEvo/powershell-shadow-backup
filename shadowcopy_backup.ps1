@@ -8,8 +8,8 @@
 #
 # ----  values expected in config txt file  ----
 #
-# target="C:\test"
-# backup_path="C:\backups"
+# target=C:\test
+# backup_path=C:\backups
 # compression_level=0
 # delete_old_backups=true
 # keep_last_n=5
@@ -131,7 +131,7 @@ echo "DELETING OLD BACKUPS"
 if ($delete_old_backups -eq $true) {
     # get list of old backups at the $backup_path
     # wrapping with @() to always get list and not just object when its single item
-    $all_previous_backups = Get-ChildItem -Path ($backup_path + "\*.zip")
+    $all_previous_backups = Get-ChildItem -Path "$backup_path\$config_txt_file_name_without_extension*.zip"
     $sorted_by_cration_date = @($all_previous_backups | Sort-Object -Descending CreationTime)
     echo "- backups on the disk: $($sorted_by_cration_date.count)"
 

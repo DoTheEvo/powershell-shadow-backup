@@ -6,10 +6,9 @@
 # - copy in to it "shadowcopy_backup.ps1" and "shadowcopy_backup_deploy.ps1"
 # - create new scheduled task
 
-$log_file = "C:\ProgramData\shadowcopy_backup\shadowcopy_log.txt"
+$log_file = "C:\ProgramData\shadowcopy_backup\deploy.txt"
 Start-Transcript -Path $log_file -Append -Force
 $ErrorActionPreference = "Stop"
-$script_start_date = Get-Date
 
 # true or false running as admin
 $running_as_admin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
@@ -47,7 +46,7 @@ if ($PSScriptRoot -eq "C:\ProgramData\Shadowcopy_Backup") {
         echo "- the backup script is already present at the target destination"
         echo "- renaming old one to $new_name"
     }
-    # if the other script already exists on the system rename old one
+    # if the deploy script already exists on the system rename old one
     if (Test-Path $full_deploypath2) {
         $unix_time = Get-Date -UFormat %s -Millisecond 0
         $new_name = "shadowcopy_backup_deploy.ps1." + $unix_time
@@ -56,25 +55,24 @@ if ($PSScriptRoot -eq "C:\ProgramData\Shadowcopy_Backup") {
         echo "- renaming old one to $new_name"
     }
     echo "- copying the scripts to $deploy_folder"
-    robocopy $PSScriptRoot $deploy_folder shadowcopy_backup.ps1 shadowcopy_backup_deploy.ps1 shadowcopy_backup_deploy.bat /NFL /NDL /NJS
+    robocopy $PSScriptRoot $deploy_folder shadowcopy_backup.ps1 shadowcopy_backup_deploy.ps1 example_config.txt SHADOWCOPY_BACKUP_DEPLOY.BAT /NFL /NDL /NJS
 }
 
 echo "CREATING NEW SCHEDULED TASK"
 
 $schedule = "DAILY" # MINUTE HOURLY DAILY WEEKLY MONTHLY ONCE ONSTART ONLOGON ONIDLE
-$modifier = 1 # 1 - every day, 7 - every 7 days, or whatever unit is set in schedule
+$modifier = 1 # 1 - every day, 7 - every 7 days, behaves differently depending on unit in schedule
 $day = "THU" # MON,TUE,WED,THU,FRI,SAT,SUN
 $start_time = "20:19"
 $title = "Shadowcopy Backup"
-$trigger = 'Powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -command "C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup.ps1"'
-
+$command_in_trigger = "'& C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup.ps1 -config_txt_path C:\ProgramData\Shadowcopy_Backup\example_config.txt'"
+$trigger = "Powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command $command_in_trigger"
+# using cmd for the compatibility with windows 7
 cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
 
 # with the day option, needs schedule to be set to WEEKLY and then day of the week
 # cmd /c SchTasks /Create /SC $schedule /MO $modifier /D $day /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
 
-$runtime = (Get-Date) - $script_start_date
-$readable_runtime = "{0:dd} days {0:hh} hours {0:mm} minutes {0:ss} seconds" -f $runtime
 echo " "
-echo "#######              $readable_runtime              #######"
 echo "################################################################################"
+cmd /c pause
