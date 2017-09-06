@@ -23,25 +23,28 @@ Param( [string]$config_txt_path=$(throw "config file is mandatory, please provid
 $config_txt_fullpath = Resolve-Path -Path $config_txt_path
 $config_txt_file_name_without_extension = (Get-Item $config_txt_fullpath).Basename
 
+# start loging in to a log file, named samed as the config file
+$log_file_name = $config_txt_file_name_without_extension + ".log"
+$log_file_full_path = Join-Path -Path $PSScriptRoot -ChildPath "logs" | Join-Path -ChildPath $log_file_name
+Start-Transcript -Path $log_file_full_path -Append -Force
+
 # read the content of the config file, ignore lines starting with #, rest load as variables
 Get-Content $config_txt_fullpath | Foreach-Object{
     if (-NOT $_.StartsWith("#")){
         $var = $_.Split('=')
+        # load preset variables as booleans
         if (@('delete_old_backups','keep_monthly','keep_weekly') -contains $var[0]) {
             New-Variable -Name $var[0] -Value  ($var[1] -eq $true)
+        # load what look like numbers as integers
         } ElseIf ($var[1] -match "^[\d\.]+$") {
             $integer_version = [convert]::ToInt32($($var[1]), 10)
             New-Variable -Name $var[0] -Value $integer_version
+        # rest as string
         } else {
             New-Variable -Name $var[0] -Value $var[1]
         }
     }
 }
-
-# start loging in to a log file, named samed as the config file
-$log_file_name = $config_txt_file_name_without_extension + ".log"
-$log_file_full_path = Join-Path -Path $PSScriptRoot -ChildPath "logs" | Join-Path -ChildPath $log_file_name
-Start-Transcript -Path $log_file_full_path -Append -Force
 
 # some variables used through out the script
 $ErrorActionPreference = "Stop"
@@ -136,6 +139,10 @@ if ($delete_old_backups -eq $true) {
     echo "- backups on the disk: $($sorted_by_cration_date.count)"
 
     $backups_to_keep = @()
+
+    # always at least 1 backup
+    if ($keep_last_n -lt 1) {Set-Variable -Name "keep_last_n" -Value 1}
+    echo "- keeping last: $keep_last_n backups"
 
     # keeping the set number of backups
     for ($i = 0; $i -lt $keep_last_n; $i++) {
