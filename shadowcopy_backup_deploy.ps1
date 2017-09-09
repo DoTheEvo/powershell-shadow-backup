@@ -1,20 +1,24 @@
 # ------------------------------------------------------------------------------
 # ---------------------   DEPLOY_AND_MAKE_SCHEDULED_TASK   ---------------------
 # ------------------------------------------------------------------------------
-# - requirements: script shadowcopy_backup.ps1 in the same directory
-# - scripts creates folder C:\ProgramData\shadowcopy_backup
-# - copies in to it "shadowcopy_backup.ps1" and "shadowcopy_backup_deploy.ps1"
-# - create new scheduled task
+# - this script creates folder C:\ProgramData\shadowcopy_backup
+# - copies in to it "shadowcopy_backup.ps1"
+# - copies in to it itself - "shadowcopy_backup_deploy.ps1"
+# - copies in to it - "SHADOWCOPY_BACKUP_DEPLOY.BAT"
+# - creates in it a config file named based on user input
+# - creates new scheduled back up task
 
-# start logging
-$log_file = "$env:TEMP\shadowcopy_deploy.txt"
+# start logging in to a file in %temp%
+$log_file = "$env:TEMP\shadowcopy_deploy_log.txt"
 Start-Transcript -Path $log_file -Append -Force
 $ErrorActionPreference = "Stop"
 
-# true or false running as admin
+# check if running as adming
 $running_as_admin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 if (-NOT $running_as_admin){
-    throw "NOT RUNNING AS ADMIN, THE END"
+    echo "NOT RUNNING AS ADMIN, THE END"
+    cmd /c pause
+    exit
 }
 
 $t = Get-Date -format "yyyy-MM-dd || HH:mm:ss"
@@ -23,22 +27,29 @@ echo "##########################################################################
 echo "#######                      $t                      #######"
 echo " "
 
-# name associated with this backup
+# get the name that will be associated with this backup
 echo "ENTER THE NAME OF THE BACKUP"
 echo "- config file will be named based on it"
-echo "- archive names will be named after it"
+echo "- archives will be named after it"
 echo "- shechuled task will have it in the name"
-$backup_name = Read-Host "Enter the name, no spaces, no diacritic"
+$backup_name = Read-Host "Enter the name, no spaces, no diacritic, no special characters"
 while (!$backup_name) {
-    $backup_name = Read-Host "Enter the name, no spaces, no diacritic"
+    $backup_name = Read-Host "Enter the name, no spaces, no diacritic, no special characters"
 }
 
-echo "DEPLOING THE SCRIPT"
-
+# paths in variables that will be used
 $deploy_folder = 'C:\ProgramData\Shadowcopy_Backup'
 $full_deploypath1 = 'C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup.ps1'
 $full_deploypath2 = 'C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup_deploy.ps1'
 $config_path = "C:\ProgramData\Shadowcopy_Backup\" + $backup_name + "_config.txt"
+
+# check if config with the same name does not alrady exists
+if (Test-Path $config_path) {
+    echo "THE NAME: $backup_name IS ALREADY IN USE!"
+    cmd /c pause
+    exit
+}
+
 echo "- installation path: $deploy_folder"
 
 if (Test-Path $deploy_folder) {
@@ -48,10 +59,10 @@ if (Test-Path $deploy_folder) {
     echo "- the folder created"
 }
 
-$example_config = @"
+$config_template = @"
 # backups will be named based on this config file name
 target=C:\test
-backup_path=C:\backups
+backup_path=C:\
 # 0=no-compression,5=default,9=ultra [0 | 1 | 3 | 5 | 7 | 9 ]
 compression_level=0
 # delete applies to zip files at the backup_path
@@ -62,53 +73,66 @@ keep_monthly=false
 keep_weekly=false
 "@
 
-$example_config | Out-File -FilePath $config_path -Encoding ASCII
+$config_template | Out-File -FilePath $config_path -Encoding ASCII
 
+echo "- config file created: $config_path"
+
+# change permissions to allow easy editing of the config file
+$Acl = Get-Acl -Path $config_path
+$Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("USERS","Modify","Allow")
+$Acl.SetAccessRule($Ar)
+Set-Acl -Path $config_path -AclObject $Acl
+
+echo "- changing config files permissions to allow editing more easily"
 
 if ($PSScriptRoot -eq "C:\ProgramData\Shadowcopy_Backup") {
-    echo "- running script that is already in C:\ProgramData\Shadowcopy_Backup"
-    echo "- nothing is copied, only a new config file is created and a new scheduled task"
+    echo "- running script from C:\ProgramData\Shadowcopy_Backup"
+    echo "- nothing is being copied"
+    echo "- only a new config file is created and a new scheduled task"
 } else {
-    # if the script already exists on the system rename old one
-    if (Test-Path $full_deploypath1) {
-        $unix_time = Get-Date -UFormat %s -Millisecond 0
-        $new_name = "shadowcopy_backup.ps1." + $unix_time
-        Rename-Item $full_deploypath1 $new_name
-        echo "- the backup script is already present at the target destination"
-        echo "- renaming old one to $new_name"
-    }
-    # if the deploy script already exists on the system rename old one
-    if (Test-Path $full_deploypath2) {
-        $unix_time = Get-Date -UFormat %s -Millisecond 0
-        $new_name = "shadowcopy_backup_deploy.ps1." + $unix_time
-        Rename-Item $full_deploypath2 $new_name
-        echo "- the deploy script is already present at the target destination"
-        echo "- renaming old one to $new_name"
-    }
-    echo "- copying the scripts to $deploy_folder"
-    robocopy $PSScriptRoot $deploy_folder shadowcopy_backup.ps1 shadowcopy_backup_deploy.ps1 SHADOWCOPY_BACKUP_DEPLOY.BAT /NFL /NDL /NJS
+    echo "- copying the files to $deploy_folder"
+    echo "- will overwrite script files if already exist"
+    robocopy $PSScriptRoot $deploy_folder shadowcopy_backup.ps1 shadowcopy_backup_deploy.ps1 SHADOWCOPY_BACKUP_DEPLOY.BAT /NFL /NDL /NJS /IS
 }
 
+# scheduled task should be edited manually afterwards using taskschd.msc
 echo "CREATING NEW SCHEDULED TASK"
 
 $schedule = "DAILY" # MINUTE HOURLY DAILY WEEKLY MONTHLY ONCE ONSTART ONLOGON ONIDLE
 $modifier = 1 # 1 - every day, 7 - every 7 days, behaves differently depending on unit in schedule
-$day = "THU" # MON,TUE,WED,THU,FRI,SAT,SUN
 $start_time = "20:19"
 $title = "Shadowcopy_Backup_$backup_name"
 $command_in_trigger = "'& C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup.ps1 -config_txt_path $config_path'"
 $trigger = "Powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command $command_in_trigger"
 
-# using cmd for the compatibility with windows 7
+# using cmd for the compatibility with windows 7 instead of Register-ScheduledTask cmdlet
+
+# version where the task is run as system, less stuff in logs, completely hidden, not working on win10
 cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
 
-# with the day option used, needs schedule to be set to WEEKLY and then day of the week
-# cmd /c SchTasks /Create /SC $schedule /MO $modifier /D $day /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
+# version where the task is run as local user, making it visible for a sec when starting
+# cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F
+
+# ----------- win 10 version ------------
+
+# $Password = Read-Host -AsSecureString
+# New-LocalUser -Name "ShadowBackupUser" -Password $Password -Description "Shadow Backup Administrator" -AccountNeverExpires -PasswordNeverExpires
+# Add-LocalGroupMember -Group "Administrators" -Member "ShadowBackupUser"
+
+# $registry_path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'
+# New-Item $registry_path -Force | New-ItemProperty -Name "ShadowBackupUser" -Value 0 -PropertyType DWord -Force
+
+# cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU ShadowBackupUser
+
+
+# ----------- win 10 version ------------
+
+echo "- edit the scheduled task using taskschd.msc to the specific needs"
 
 echo "CHECKING IF 7-ZIP IS INSTALLED"
 if (-NOT (test-path "$env:ProgramFiles\7-Zip\7z.exe")) {
-    for ($i=0; $i -lt 10; $i++){
-        echo " 7-zip x64 needs to be installed!!! !!! !!!!!!!!!!!!!!!"
+    for ($i=0; $i -lt 20; $i++){
+        echo " INSTALL 7-zip x64 !!!"
     }
 } else {
     echo "- 7-zip x64 seems to be installed"

@@ -21,10 +21,11 @@
 # get full path to config txt file passed as parameter, throw error if theres none
 Param( [string]$config_txt_path=$(throw "config file is mandatory, please provide as parameter.") )
 $config_txt_fullpath = Resolve-Path -Path $config_txt_path
-$config_txt_file_name_without_extension = (Get-Item $config_txt_fullpath).Basename
+$config_txt_file_name = (Get-Item $config_txt_fullpath).name
+$pure_config_name = $config_txt_file_name.Substring(0,($config_txt_file_name.Length)-11)
 
 # start loging in to a log file, named samed as the config file
-$log_file_name = $config_txt_file_name_without_extension + ".log"
+$log_file_name = $pure_config_name + ".log"
 $log_file_full_path = Join-Path -Path $PSScriptRoot -ChildPath "logs" | Join-Path -ChildPath $log_file_name
 Start-Transcript -Path $log_file_full_path -Append -Force
 
@@ -51,7 +52,7 @@ $ErrorActionPreference = "Stop"
 $script_start_date = Get-Date
 $date = Get-Date -format "yyyy-MM-dd"
 $unix_time = Get-Date -UFormat %s -Millisecond 0
-$archive_filename = $config_txt_file_name_without_extension + "_" + $date + "_" + $unix_time + ".zip"
+$archive_filename = $pure_config_name + "_" + $date + "_" + $unix_time + ".zip"
 $temp_shadow_link = "$env:TEMP\shadowcopy_link + $unix_time"
 $temp_archive_path = Join-Path -Path $env:TEMP -ChildPath $archive_filename
 
@@ -134,7 +135,7 @@ echo "DELETING OLD BACKUPS"
 if ($delete_old_backups -eq $true) {
     # get list of old backups at the $backup_path
     # wrapping with @() to always get list and not just object when its single item
-    $all_previous_backups = Get-ChildItem -Path "$backup_path\$config_txt_file_name_without_extension*.zip"
+    $all_previous_backups = Get-ChildItem -Path "$backup_path\$pure_config_name*.zip"
     $sorted_by_cration_date = @($all_previous_backups | Sort-Object -Descending CreationTime)
     echo "- backups on the disk: $($sorted_by_cration_date.count)"
 
