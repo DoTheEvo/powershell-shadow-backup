@@ -6,6 +6,7 @@
 # - copies in to it itself - "shadowcopy_backup_deploy.ps1"
 # - copies in to it - "SHADOWCOPY_BACKUP_DEPLOY.BAT"
 # - creates in it a config file named based on user input
+# - creates new ShadowBackupUser account with a password
 # - creates new scheduled back up task
 
 # start logging in to a file in %temp%
@@ -32,15 +33,13 @@ echo "ENTER THE NAME OF THE BACKUP"
 echo "- config file will be named based on it"
 echo "- archives will be named after it"
 echo "- shechuled task will have it in the name"
-$backup_name = Read-Host "Enter the name, no spaces, no diacritic, no special characters"
+$backup_name = Read-Host "- no spaces, no diacritic, no special characters"
 while (!$backup_name) {
-    $backup_name = Read-Host "Enter the name, no spaces, no diacritic, no special characters"
+    $backup_name = Read-Host "- no spaces, no diacritic, no special characters"
 }
 
 # paths in variables that will be used
 $deploy_folder = 'C:\ProgramData\Shadowcopy_Backup'
-$full_deploypath1 = 'C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup.ps1'
-$full_deploypath2 = 'C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup_deploy.ps1'
 $config_path = "C:\ProgramData\Shadowcopy_Backup\" + $backup_name + "_config.txt"
 
 # check if config with the same name does not alrady exists
@@ -83,10 +82,10 @@ $Ar = New-Object  system.security.accesscontrol.filesystemaccessrule("USERS","Mo
 $Acl.SetAccessRule($Ar)
 Set-Acl -Path $config_path -AclObject $Acl
 
-echo "- changing config files permissions to allow editing more easily"
+echo "- changing config files permissions to allow easy editing"
 
 if ($PSScriptRoot -eq "C:\ProgramData\Shadowcopy_Backup") {
-    echo "- running script from C:\ProgramData\Shadowcopy_Backup"
+    echo "- running the script from $deploy_folder"
     echo "- nothing is being copied"
     echo "- only a new config file is created and a new scheduled task"
 } else {
@@ -94,6 +93,25 @@ if ($PSScriptRoot -eq "C:\ProgramData\Shadowcopy_Backup") {
     echo "- will overwrite script files if already exist"
     robocopy $PSScriptRoot $deploy_folder shadowcopy_backup.ps1 shadowcopy_backup_deploy.ps1 SHADOWCOPY_BACKUP_DEPLOY.BAT /NFL /NDL /NJS /IS
 }
+
+# new user to allow the scheduled task to run without being seen in any way, /RU SYSTEM does not work on win10, and 7/8 had less info in logging
+$local_users = Get-LocalUser
+if (-NOT ($local_users.Name -contains "ShadowBackupUser")) {
+    echo "ADDING NEW USER: ShadowBackupUser"
+    echo "- enter new password for this account"
+    $Password = Read-Host -AsSecureString
+    New-LocalUser -Name "ShadowBackupUser" -Password $Password -Description "Shadow Backup Administrator" -AccountNeverExpires -PasswordNeverExpires
+    Add-LocalGroupMember -Group "Administrators" -Member "ShadowBackupUser"
+    echo "- added to the Administrators group"
+
+    # editing registry to hide the account from login screen
+    $registry_path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'
+    New-Item $registry_path -Force | New-ItemProperty -Name "ShadowBackupUser" -Value 0 -PropertyType DWord -Force
+    echo "- hidding ShadowBackupUser from the login screen"
+} else {
+    echo "- ShadowBackupUser already exists, youd better remember the password"
+}
+
 
 # scheduled task should be edited manually afterwards using taskschd.msc
 echo "CREATING NEW SCHEDULED TASK"
@@ -106,28 +124,10 @@ $command_in_trigger = "'& C:\ProgramData\Shadowcopy_Backup\shadowcopy_backup.ps1
 $trigger = "Powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command $command_in_trigger"
 
 # using cmd for the compatibility with windows 7 instead of Register-ScheduledTask cmdlet
+# /RP for password is needed to allow run without being logged in
+cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU ShadowBackupUser /RP
 
-# version where the task is run as system, less stuff in logs, completely hidden, not working on win10
-cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU SYSTEM
-
-# version where the task is run as local user, making it visible for a sec when starting
-# cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F
-
-# ----------- win 10 version ------------
-
-# $Password = Read-Host -AsSecureString
-# New-LocalUser -Name "ShadowBackupUser" -Password $Password -Description "Shadow Backup Administrator" -AccountNeverExpires -PasswordNeverExpires
-# Add-LocalGroupMember -Group "Administrators" -Member "ShadowBackupUser"
-
-# $registry_path = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList'
-# New-Item $registry_path -Force | New-ItemProperty -Name "ShadowBackupUser" -Value 0 -PropertyType DWord -Force
-
-# cmd /c SchTasks /Create /SC $schedule /MO $modifier /ST $start_time /TN $title /TR $trigger /RL HIGHEST /F /RU ShadowBackupUser
-
-
-# ----------- win 10 version ------------
-
-echo "- edit the scheduled task using taskschd.msc to the specific needs"
+echo "- edit the scheduled task using taskschd.msc for the specific needs"
 
 echo "CHECKING IF 7-ZIP IS INSTALLED"
 if (-NOT (test-path "$env:ProgramFiles\7-Zip\7z.exe")) {

@@ -2,14 +2,13 @@
 # -----------------------------   SHADOWCOPY_BACKUP   --------------------------
 # ------------------------------------------------------------------------------
 # - requirements: 7-zip, WMF 5.0+, Volume Shadow Copy (VSS) service enabled
-# - backups $target as a zip archive to $backup_path
+# - this script backups $target as a zip archive to $backup_path
 # - uses volume shadowcopy service to also backup opened files
-# - C:\ drive only !!
 #
 # ----  values expected in config txt file  ----
 #
 # target=C:\test
-# backup_path=C:\backups
+# backup_path=C:\
 # compression_level=0
 # delete_old_backups=true
 # keep_last_n=5
@@ -36,7 +35,7 @@ Get-Content $config_txt_fullpath | Foreach-Object{
         # load preset variables as booleans
         if (@('delete_old_backups','keep_monthly','keep_weekly') -contains $var[0]) {
             New-Variable -Name $var[0] -Value  ($var[1] -eq $true)
-        # load what look like numbers as integers
+        # load what looks like numbers as integers
         } ElseIf ($var[1] -match "^[\d\.]+$") {
             $integer_version = [convert]::ToInt32($($var[1]), 10)
             New-Variable -Name $var[0] -Value $integer_version
@@ -53,8 +52,8 @@ $script_start_date = Get-Date
 $date = Get-Date -format "yyyy-MM-dd"
 $unix_time = Get-Date -UFormat %s -Millisecond 0
 $archive_filename = $pure_config_name + "_" + $date + "_" + $unix_time + ".zip"
-$temp_shadow_link = "$env:TEMP\shadowcopy_link + $unix_time"
-$temp_archive_path = Join-Path -Path $env:TEMP -ChildPath $archive_filename
+$temp_shadow_link = "C:\ProgramData\shadowcopy_backup\shadowcopy_link"
+$temp_archive_path = Join-Path -Path "C:\ProgramData\shadowcopy_backup" -ChildPath $archive_filename
 
 $t = Get-Date -format "yyyy-MM-dd || HH:mm:ss"
 echo " "
@@ -63,6 +62,7 @@ echo "#######                      $t                      #######"
 echo " "
 echo "- user: $(whoami)"
 echo "- target: $target"
+echo "- target partition: $target_partition"
 echo "- backup to destination: $backup_path"
 echo "- compression_level: $compression_level"
 echo "- delete_old_backups: $delete_old_backups"
@@ -87,7 +87,12 @@ if (-NOT (Test-Path $backup_path)) {
 echo "-------------------------------------------------------------------------------"
 echo "CREATING NEW SHADOWCOPY SNAPSHOT"
 
-$s1 = (Get-WmiObject -List Win32_ShadowCopy).Create("C:\", "ClientAccessible")
+# get the letter of the partition of the target, like - "C:\"
+$target_partition = $target.Substring(0,3)
+# same as above just without backslash, like - "C:"
+$target_partition_no_slash = $target.Substring(0,2)
+
+$s1 = (Get-WmiObject -List Win32_ShadowCopy).Create($target_partition, "ClientAccessible")
 $s2 = Get-WmiObject Win32_ShadowCopy | Where-Object { $_.ID -eq $s1.ShadowID }
 $d  = $s2.DeviceObject + "\"
 
@@ -99,9 +104,9 @@ if (Test-Path $temp_shadow_link) {
 }
 
 cmd /c mklink /d $temp_shadow_link $d
-$shadow_snapshot_path = $target -ireplace "^C:", $temp_shadow_link
-
-if (-Not (Test-Path $shadow_snapshot_path)) {
+$shadow_snapshot_target_path = $target -ireplace "^$target_partition_no_slash", $temp_shadow_link
+$shadow_snapshot_target_path
+if (-Not (Test-Path $shadow_snapshot_target_path)) {
     throw "- not a valid shadow copy path"
 }
 
@@ -127,7 +132,7 @@ Vssadmin list shadowstorage
 
 echo "-------------------------------------------------------------------------------"
 echo "MOVING THE ARCHIVE USING ROBOCOPY"
-robocopy $env:TEMP $backup_path $archive_filename /MOVE /R:3 /np
+robocopy "C:\ProgramData\shadowcopy_backup" $backup_path $archive_filename /MOVE /R:3 /np
 
 echo "-------------------------------------------------------------------------------"
 echo "DELETING OLD BACKUPS"
