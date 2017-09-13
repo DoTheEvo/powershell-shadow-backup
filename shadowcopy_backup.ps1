@@ -105,20 +105,21 @@ if (Test-Path $temp_shadow_link) {
 
 cmd /c mklink /d $temp_shadow_link $d
 $shadow_snapshot_target_path = $target -ireplace "^$target_partition_no_slash", $temp_shadow_link
-$shadow_snapshot_target_path
+
 if (-Not (Test-Path $shadow_snapshot_target_path)) {
     throw "- not a valid shadow copy path"
 }
 
+# 7zip in action
 echo "-------------------------------------------------------------------------------"
 echo "CREATING ARCHIVE"
 if (-NOT (test-path "$env:ProgramFiles\7-Zip\7z.exe")) {
     throw "$env:ProgramFiles\7-Zip\7z.exe NEEDED!"
 }
-# 7zip in action
 echo "- creating $temp_archive_path"
 echo "- waiting for 7zip to finish..."
-Start-Process -WindowStyle hidden -FilePath "$env:ProgramFiles\7-Zip\7z.exe" -ArgumentList "a","-snl","-mx=$compression_level","$temp_archive_path","$target" -Wait
+# tripple quotations for $target to make paths with spaces work
+Start-Process -WindowStyle hidden -FilePath "$env:ProgramFiles\7-Zip\7z.exe" -ArgumentList "a","-snl","-mx=$compression_level","$temp_archive_path","""$target""" -Wait
 echo "- done"
 
 echo "-------------------------------------------------------------------------------"
