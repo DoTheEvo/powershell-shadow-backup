@@ -1,7 +1,8 @@
 # ------------------------------------------------------------------------------
 # -----------------------------   SHADOWCOPY_BACKUP   --------------------------
 # ------------------------------------------------------------------------------
-# - requirements: 7-zip, WMF 5.0+, Volume Shadow Copy (VSS) service enabled
+# - requirements:
+#       7-zip, WMF 5.0+, Volume Shadow Copy (VSS) service enabled
 # - this script backups $target as a zip archive to $backup_path
 # - uses volume shadowcopy service to also backup opened files
 #
@@ -12,13 +13,18 @@
 # compression_level=0
 # delete_old_backups=true
 # keep_last_n=5
-# keep_monthly=true
-# keep_weekly=true
+# keep_monthly=false
+# keep_n_monthly=10
+# keep_weekly=false
+# keep_n_weekly=4
 
 # ----------------------------------------------
+# keep_last_n - integer, from the list of founds backups, keeps set number no matter what
+# keep_weekly - true/false, if set to true, keeps the first backup of every week
+# keep_monthly - true/false, if set to true, keeps the first backup of every month
 
 # get full path to config txt file passed as parameter, throw error if theres none
-Param( [string]$config_txt_path=$(throw "config file is mandatory, please provide as parameter.") )
+Param( [string]$config_txt_path=$(throw "config file is mandatory, please provide as parameter") )
 $config_txt_fullpath = Resolve-Path -Path $config_txt_path
 $config_txt_file_name = (Get-Item $config_txt_fullpath).name
 $pure_config_name = $config_txt_file_name.Substring(0,($config_txt_file_name.Length)-11)
@@ -69,6 +75,8 @@ echo "- delete_old_backups: $delete_old_backups"
 echo "- keep_last_n: $keep_last_n"
 echo "- keep_monthly: $keep_monthly"
 echo "- keep_weekly: $keep_weekly"
+echo "- keep_n_monthly: $keep_n_monthly"
+echo "- keep_n_weekly: $keep_n_weekly"
 
 # running with admin privilages check
 $running_as_admin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
@@ -133,33 +141,49 @@ Vssadmin list shadowstorage
 
 echo "-------------------------------------------------------------------------------"
 echo "MOVING THE ARCHIVE USING ROBOCOPY"
-robocopy "C:\ProgramData\shadowcopy_backup" $backup_path $archive_filename /MOVE /R:3 /np
+robocopy "C:\ProgramData\shadowcopy_backup" $backup_path $archive_filename /MOV /R:3 /np
 
 echo "-------------------------------------------------------------------------------"
 echo "DELETING OLD BACKUPS"
 
-if ($delete_old_backups -eq $true) {
-    # get list of old backups at the $backup_path
-    # wrapping with @() to always get list and not just object when its single item
-    $all_previous_backups = Get-ChildItem -Path "$backup_path\$pure_config_name*.zip"
-    $sorted_by_cration_date = @($all_previous_backups | Sort-Object -Descending CreationTime)
-    echo "- backups on the disk: $($sorted_by_cration_date.count)"
+# always at least 1 backup
+if ($keep_last_n -lt 1) {Set-Variable -Name "keep_last_n" -Value 1}
 
+# get list of old backups at the $backup_path
+# wrapping with @() to always get list and not just a single item
+$all_previous_backups = @(Get-ChildItem -Path "$backup_path\$pure_config_name*.zip")
+
+if ($delete_old_backups -eq $true -AND $all_previous_backups.Count -gt $keep_last_n) {
+
+    # using array list instead of classic array to be able to remove from it easily
+    $sorted_by_cration_date = New-Object System.Collections.ArrayList
+    $sorted_by_cration_date.AddRange($($all_previous_backups | Sort-Object -Descending CreationTime))
+
+    echo "- keeping last: $keep_last_n backups"
+    echo "- keeping monthly backups: $keep_monthly"
+    echo "- number of monthly backups kept: $keep_n_monthly"
+    echo "- keeping weekly backups: $keep_weekly"
+    echo "- number of weekly backups kept: $keep_n_weekly"
+    echo "- number of backups curently on the disk: $($sorted_by_cration_date.Count)"
+    echo $sorted_by_cration_date.Name
+
+    $keep_n_weekly_temp = $keep_n_weekly
+    $keep_n_monthly_temp = $keep_n_monthly
     $backups_to_keep = @()
 
-    # always at least 1 backup
-    if ($keep_last_n -lt 1) {Set-Variable -Name "keep_last_n" -Value 1}
-    echo "- keeping last: $keep_last_n backups"
 
     # keeping the set number of backups
     for ($i = 0; $i -lt $keep_last_n; $i++) {
         $backups_to_keep += $sorted_by_cration_date[$i].FullName
     }
 
+    # removing the latest $keep_last_n backups leaving only monthly and weekly to deal with
+    $sorted_by_cration_date.RemoveRange(0, $keep_last_n)
+
     # serparate by year
-    $years_separates = @{}
+    $years_separated = @{}
     foreach($i in $sorted_by_cration_date) {
-        $years_separates[(get-date $i.CreationTime -format "yyyy")] += ,$i
+        $years_separated[(get-date $i.CreationTime -format "yyyy")] += ,$i
     }
 
     function month_week_cleanup_per_year(){
@@ -173,24 +197,35 @@ if ($delete_old_backups -eq $true) {
             $week_hashtable[(get-date $i.CreationTime -UFormat %V)] = $i.FullName
         }
 
-        if ($one_a_week -eq $true) {
-            foreach($i in $week_hashtable) {
-                $keeping_this_files += $i.Values
+        #sort hashtables by date in reverse order, the results are objects[]
+        $month_sorted_object = $month_hashtable.getenumerator() | sort-object -property Name -Descending
+        $week_sorted_object = $week_hashtable.getenumerator() | sort-object -property Name -Descending
+
+        if ($one_a_week -eq $true -AND $keep_n_weekly_temp -gt 1) {
+            foreach($i in $week_sorted_object) {
+                $keeping_this_files += $i.Value
+                $script:keep_n_weekly_temp--
+                if ($keep_n_weekly_temp -le 1) {break}
             }
         }
-        if ($one_a_month -eq $true) {
-            foreach($i in $month_hashtable) {
-                $keeping_this_files += $i.Values
+        if ($one_a_month -eq $true -AND $keep_n_monthly_temp -gt 1) {
+            foreach($i in $month_sorted_object) {
+                $keeping_this_files += $i.Value
+                $script:keep_n_monthly_temp--
+                if ($keep_n_monthly_temp -le 1) {break}
             }
         }
 
         return $keeping_this_files
     }
 
-    foreach($i in $years_separates.Keys) {
-        $backups_to_keep += month_week_cleanup_per_year $years_separates[$i] $keep_weekly $keep_monthly
+    #sort by date, newest go first, no more hastable but object[]
+    $years_separated = $years_separated.getenumerator() | Sort-Object -Property Name -Descending
+
+    foreach($i in $years_separated) {
+        $backups_to_keep += month_week_cleanup_per_year $i.Value $keep_weekly $keep_monthly
     }
-    $backups_to_keep
+
     # actual deletion of old backups
     foreach($i in $sorted_by_cration_date) {
         if (-NOT ($backups_to_keep -contains $i.FullName)){
@@ -199,7 +234,7 @@ if ($delete_old_backups -eq $true) {
         }
     }
 } else {
-    echo "- deletion is disabled"
+    echo "- deletion is disabled or fewer backups currently present than keep_last_n"
 }
 
 $runtime = (Get-Date) - $script_start_date

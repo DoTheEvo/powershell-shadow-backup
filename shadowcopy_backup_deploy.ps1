@@ -69,7 +69,9 @@ compression_level=0
 delete_old_backups=true
 keep_last_n=10
 keep_monthly=false
+keep_n_monthly=10
 keep_weekly=false
+keep_n_weekly=4
 "@
 
 $config_template | Out-File -FilePath $config_path -Encoding ASCII
